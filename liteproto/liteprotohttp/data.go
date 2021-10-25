@@ -1,7 +1,6 @@
 package liteprotohttp
 
 import (
-	"compress/gzip"
 	"encoding/json"
 	"io"
 	"time"
@@ -11,55 +10,61 @@ import (
 type message struct {
 	ID       string          `json:"id"`
 	Type     string          `json:"type"`
+	Status   string          `json:"status,omitempty"` // status is used only for response messages
 	Data     json.RawMessage `json:"data"`
-	Deadline *time.Time      `json:"deadline,omitempty"`
+	Deadline *time.Time      `json:"deadline,omitempty"` // deadline is used only for request messages
 }
 
-func marshalMessage(writer io.Writer, compress bool, messageID, messageType string, messageData []byte, messageDeadline *time.Time) error {
-	if messageDeadline != nil && messageDeadline.IsZero() {
-		messageDeadline = nil
-	}
-
-	var w io.Writer
-
-	if compress {
-		gz := gzip.NewWriter(writer)
-		defer gz.Close()
-
-		w = gz
-	} else {
-		w = writer
-	}
-
-	return json.NewEncoder(w).Encode(&message{
-		ID:       messageID,
-		Type:     messageType,
-		Data:     messageData,
-		Deadline: messageDeadline,
-	})
+type nopCloseWriter struct {
+	io.Writer
 }
 
-func unmarshalMessage(reader io.Reader, compress bool) (*message, error) {
-	var r io.Reader
+func (w nopCloseWriter) Write(data []byte) (int, error) {
+	return w.Writer.Write(data)
+}
 
-	if compress {
-		gz, err := gzip.NewReader(reader)
-		if err != nil {
-			return nil, err
-		}
-		defer gz.Close()
+func (nopCloseWriter) Close() error {
+	return nil
+}
 
-		r = gz
-	} else {
-		r = reader
+func wrapWriter(wc io.WriteCloser, f func(writer io.Writer) error) error {
+	if err := f(wc); err != nil {
+		return err
 	}
+	if err := wc.Close(); err != nil {
+		return err
+	}
+	return nil
+}
 
-	value := &message{}
+func wrapReader(rc io.ReadCloser, f func(reader io.Reader) (*message, error)) (m *message, err error) {
+	if m, err = f(rc); err != nil {
+		return
+	}
+	if err = rc.Close(); err != nil {
+		return nil, err
+	}
+	return
+}
 
-	err := json.NewDecoder(r).Decode(value)
+type messageMarshaller interface {
+	messageMarshal(writer io.Writer, m *message) error
+	messageUnmarshal(reader io.Reader) (*message, error)
+}
+
+type jsoner struct{}
+
+func (jsoner) messageMarshal(w io.Writer, m *message) error {
+	return json.NewEncoder(w).Encode(m)
+}
+
+func (jsoner) messageUnmarshal(r io.Reader) (*message, error) {
+	var m message
+
+	err := json.NewDecoder(r).Decode(&m)
 	if err != nil {
 		return nil, err
 	}
 
-	return value, nil
+	return &m, nil
 }

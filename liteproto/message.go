@@ -1,13 +1,34 @@
 package liteproto
 
-// Message contains information about a job that needs to executed or a response to such a job.
-type Message struct {
-	// MessageID is an ID. Response message uses use the same ID as the job to which it's a response to.
-	MessageID string
+const (
+	StatusSuccess = "success"
+	StatusOK      = "ok"
+	StatusError   = "error"
+)
 
-	// MessageType describes type of the MessageData.
-	MessageType string
+// TaskRequest contains information about a task that needs to executed.
+type TaskRequest struct {
+	// ID is an id. Response message uses use the same ID as the request to which it's a response to.
+	ID string
 
-	// MessageData hold arbitrary byte data payload.
-	MessageData []byte
+	// Type describes type of a task.
+	Type string
+
+	// Data holds arbitrary byte data payload.
+	Data []byte
+}
+
+// TaskResponse contains response of a task.
+type TaskResponse struct {
+	// ID is an id.
+	ID string
+
+	// Type describes type of a task.
+	Type string
+
+	// Status holds a status of a task ("success" or "error")
+	Status string
+
+	// Data holds arbitrary byte data payload.
+	Data []byte
 }

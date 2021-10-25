@@ -7,55 +7,56 @@ import (
 )
 
 // PubSub is a simple implementation of publisher/subscriber interface
-// that stores all subscribers into a map. It doesn't support horizontal scaling of servers.
+// that stores all subscribers into a in-memory map.
+// It doesn't support horizontal scaling of servers.
 type PubSub struct {
-	subscribers map[string]chan<- liteproto.Message
+	subscribers map[string]chan<- liteproto.TaskResponse
 	sync.Mutex
 }
 
-func (q *PubSub) Subscribe(jobID string) (responseCh <-chan liteproto.Message, err error) {
+func (q *PubSub) Subscribe(id string) (responseCh <-chan liteproto.TaskResponse, err error) {
 	q.Lock()
 	defer q.Unlock()
 
 	if q.subscribers == nil {
-		q.subscribers = make(map[string]chan<- liteproto.Message)
+		q.subscribers = make(map[string]chan<- liteproto.TaskResponse)
 	}
 
-	_, ok := q.subscribers[jobID]
+	_, ok := q.subscribers[id]
 	if ok {
 		err = liteproto.ErrAlreadySubscribed
 		return
 	}
 
-	ch := make(chan liteproto.Message, 10)
-	q.subscribers[jobID] = ch
+	ch := make(chan liteproto.TaskResponse, 10)
+	q.subscribers[id] = ch
 
 	responseCh = ch
 
 	return
 }
 
-func (q *PubSub) Unsubscribe(jobID string) (err error) {
+func (q *PubSub) Unsubscribe(id string) (err error) {
 	q.Lock()
 	defer q.Unlock()
 
-	_, ok := q.subscribers[jobID]
+	_, ok := q.subscribers[id]
 	if !ok {
 		err = liteproto.ErrNotSubscribed
 		return
 	}
 
-	delete(q.subscribers, jobID)
+	delete(q.subscribers, id)
 
 	return
 }
 
-func (q *PubSub) Publish(response liteproto.Message) (err error) {
+func (q *PubSub) Publish(response liteproto.TaskResponse) (err error) {
 	q.Lock()
 	defer q.Unlock()
 
-	for jobID, responseCh := range q.subscribers {
-		if jobID != response.MessageID {
+	for id, responseCh := range q.subscribers {
+		if id != response.ID {
 			continue
 		}
 

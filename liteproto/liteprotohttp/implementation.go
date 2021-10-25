@@ -17,7 +17,7 @@ type CallProto struct {
 	sf     *internal.ServerFeeder
 }
 
-func New(urlRequest, urlResponse string, compress bool, httpClient *http.Client, logger *log.Logger) *CallProto {
+func New(url string, compress bool, httpClient *http.Client, logger *log.Logger) *CallProto {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
@@ -28,8 +28,10 @@ func New(urlRequest, urlResponse string, compress bool, httpClient *http.Client,
 
 	h := &CallProto{}
 
-	c := NewCaller(httpClient, urlRequest, compress)
-	f := NewResponderFactory(h, httpClient, urlResponse)
+	marshaller := jsoner{}
+
+	c := newCaller(httpClient, marshaller, url, compress)
+	f := newResponderFactory(h, c)
 
 	sf := internal.NewServerFeeder(f, logger)
 	pubsub := &internal.PubSub{}
@@ -47,34 +49,30 @@ func New(urlRequest, urlResponse string, compress bool, httpClient *http.Client,
 	return h
 }
 
-func (h *CallProto) Register(jobType string, execer liteproto.Execer) {
-	h.sf.Register(jobType, execer)
+func (h *CallProto) Register(t string, execer liteproto.Execer) {
+	h.sf.Register(t, execer)
 }
 
-func (h *CallProto) RegisterWithResponder(jobType string, execer liteproto.ExecerWithResponder) {
-	h.sf.RegisterWithResponder(jobType, execer)
+func (h *CallProto) RegisterWithResponder(t string, execer liteproto.ExecerWithResponder) {
+	h.sf.RegisterWithResponder(t, execer)
 }
 
 func (h *CallProto) RegisterCatchAll(execer liteproto.ExecerWithResponder) {
 	h.sf.RegisterCatchAll(execer)
 }
 
-func (h *CallProto) CallWithResponse(ctx context.Context, job liteproto.Message) (response <-chan liteproto.Message, stop chan<- struct{}, err error) {
-	return h.runner.Run(ctx, job.MessageID, job.MessageType, job.MessageData, time.Time{})
+func (h *CallProto) CallWithResponse(ctx context.Context, r liteproto.TaskRequest) (response <-chan liteproto.TaskResponse, stop chan<- struct{}, err error) {
+	return h.runner.Run(ctx, r, time.Time{})
 }
 
-func (h *CallProto) CallWithDeadline(ctx context.Context, job liteproto.Message, deadline time.Time) (response <-chan liteproto.Message, stop chan<- struct{}, err error) {
-	return h.runner.Run(ctx, job.MessageID, job.MessageType, job.MessageData, deadline)
+func (h *CallProto) CallWithDeadline(ctx context.Context, r liteproto.TaskRequest, deadline time.Time) (response <-chan liteproto.TaskResponse, stop chan<- struct{}, err error) {
+	return h.runner.Run(ctx, r, deadline)
 }
 
-func (h *CallProto) Call(ctx context.Context, job liteproto.Message) (err error) {
-	return h.caller.Call(ctx, job.MessageID, job.MessageType, job.MessageData, time.Time{})
+func (h *CallProto) Call(ctx context.Context, r liteproto.TaskRequest) (err error) {
+	return h.caller.Call(ctx, r, time.Time{})
 }
 
-func (h *CallProto) HandlerRequest() http.Handler {
-	return handlerRequest(h.sf)
-}
-
-func (h *CallProto) HandlerResponse() http.Handler {
-	return handlerResponse(h.pubsub)
+func (h *CallProto) Handler() http.Handler {
+	return handler(h.sf, h.pubsub)
 }

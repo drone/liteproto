@@ -2,37 +2,29 @@ package liteprotohttp
 
 import (
 	"context"
-	"net/http"
-	"time"
 
 	"github.com/drone/liteproto/liteproto"
 	"github.com/drone/liteproto/liteproto/internal"
 )
 
 type responderFactory struct {
-	client     liteproto.Client
-	httpClient *http.Client
-	url        string
-	compress   bool
+	client liteproto.Client
+	caller *caller
 }
 
-func NewResponderFactory(l liteproto.Client, client *http.Client, url string) internal.ResponderFactory {
+func newResponderFactory(cl liteproto.Client, c *caller) internal.ResponderFactory {
 	return &responderFactory{
-		client:     l,
-		httpClient: client,
-		url:        url,
-		compress:   false,
+		client: cl,
+		caller: c,
 	}
 }
 
-func (r *responderFactory) MakeResponder(jobID, jobType string) liteproto.ResponderClient {
+func (r *responderFactory) MakeResponder(id, t string) liteproto.ResponderClient {
 	return &responder{
-		Client:     r.client,
-		jobID:      jobID,
-		jobType:    jobType,
-		httpClient: r.httpClient,
-		url:        r.url,
-		compress:   r.compress,
+		Client:  r.client,
+		caller:  r.caller,
+		id:      id,
+		defType: t,
 	}
 }
 
@@ -42,17 +34,21 @@ func (r *responderFactory) Client() liteproto.Client {
 
 type responder struct {
 	liteproto.Client
-	jobID      string
-	jobType    string
-	httpClient *http.Client
-	url        string
-	compress   bool
+	caller  *caller
+	id      string
+	defType string
 }
 
-func (r *responder) Respond(ctx context.Context, data []byte) (err error) {
-	return call(ctx, r.httpClient, r.url, r.compress, r.jobID, r.jobType, data, time.Time{})
+func (r *responder) Respond(ctx context.Context, status string, data []byte) (err error) {
+	if status == "" {
+		panic("status can't be empty")
+	}
+	return r.caller.do(ctx, r.id, r.defType, status, data, nil)
 }
 
-func (r *responder) RespondWithType(ctx context.Context, responseType string, data []byte) (err error) {
-	return call(ctx, r.httpClient, r.url, r.compress, r.jobID, responseType, data, time.Time{})
+func (r *responder) RespondWithType(ctx context.Context, responseType, status string, data []byte) (err error) {
+	if status == "" {
+		panic("status can't be empty")
+	}
+	return r.caller.do(ctx, r.id, responseType, status, data, nil)
 }

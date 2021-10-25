@@ -15,7 +15,7 @@ func NewRunner(caller Caller, respSub ResponseSub) *Runner {
 	}
 }
 
-// Runner is used to make a call to a remote server to run a job.
+// Runner is used to make a call to a remote server to execute a task.
 // The call is made by an implementation of Caller interface.
 // Responses are handled by an implementation of ResponseSub interface.
 type Runner struct {
@@ -27,12 +27,12 @@ type Runner struct {
 // one for receiving a response (or potentially several responses) and a stop channel.
 // The stop channel should be closed by the caller when no further responses are expected.
 // If the function returns an error both channels will be nil.
-func (rq *Runner) Run(ctx context.Context, jobID, jobType string, data []byte, deadline time.Time) (<-chan liteproto.Message, chan<- struct{}, error) {
-	if jobID == "" {
+func (rq *Runner) Run(ctx context.Context, r liteproto.TaskRequest, deadline time.Time) (<-chan liteproto.TaskResponse, chan<- struct{}, error) {
+	if r.ID == "" {
 		panic("ID must not be empty")
 	}
 
-	if jobType == "" {
+	if r.Type == "" {
 		panic("Type must not be empty")
 	}
 
@@ -41,12 +41,12 @@ func (rq *Runner) Run(ctx context.Context, jobID, jobType string, data []byte, d
 	}
 
 	var err error
-	err = rq.caller.Call(ctx, jobID, jobType, data, deadline)
+	err = rq.caller.Call(ctx, r, deadline)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	outChan, err := rq.respSub.Subscribe(jobID)
+	outChan, err := rq.respSub.Subscribe(r.ID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -61,12 +61,12 @@ func (rq *Runner) Run(ctx context.Context, jobID, jobType string, data []byte, d
 		ctxJob, cancelFunc = context.WithDeadline(ctx, deadline)
 	}
 
-	responseChan := make(chan liteproto.Message)
+	responseChan := make(chan liteproto.TaskResponse)
 	stopChan := make(chan struct{})
 
 	go func(ctx context.Context) {
 		defer func() {
-			_ = rq.respSub.Unsubscribe(jobID)
+			_ = rq.respSub.Unsubscribe(r.ID)
 			close(responseChan)
 			cancelFunc()
 		}()

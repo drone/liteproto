@@ -27,11 +27,11 @@ To compile the demo:
 
 To run the demo, open two terminals and in the first one start:
 
-	demo :2001 http://localhost:2002
+	./demo :2001 http://localhost:2002
 
 And in the second start:
 
-	demo :2002 http://localhost:2001
+	./demo :2002 http://localhost:2001
 
 This will run two instances of the application that can talk to each other.
 */
@@ -51,12 +51,14 @@ func main() {
 	jSay := jobSay{}
 	jCount := jobCount{}
 
+	// endpoint is a URI to which the library direct request and URI where the responses are handled.
+	endpoint := "/endpoint"
+
 	// Create new object for handling HTTP JSON messages
 	proto := liteprotohttp.New(
-		remote+"/req",
-		remote+"/resp",
+		remote+endpoint,
 		true,
-		&http.Client{Timeout: 750 * time.Millisecond},
+		nil,
 		nil)
 
 	// Register job types
@@ -66,8 +68,7 @@ func main() {
 
 	// The library needs two different end points for requests and responses.
 	mux := http.NewServeMux()
-	mux.Handle("/req", proto.HandlerRequest())
-	mux.Handle("/resp", proto.HandlerResponse())
+	mux.Handle(endpoint, proto.Handler())
 
 	server := &http.Server{Addr: local, Handler: mux}
 
@@ -197,10 +198,10 @@ func (g jobGreet) commandRun(client liteproto.Client, _ string) (err error) {
 	// This code demonstrates calling a remote server and awaiting a response.
 	// Note that there is no timeout. We just trust that the remote server will send back a response, so we wait forever.
 
-	responseCh, stopCh, err := client.CallWithResponse(context.Background(), liteproto.Message{
-		MessageID:   id(),
-		MessageType: "greet",
-		MessageData: newChatMessageJSON(message),
+	responseCh, stopCh, err := client.CallWithResponse(context.Background(), liteproto.TaskRequest{
+		ID:   id(),
+		Type: "greet",
+		Data: newChatMessageJSON(message),
 	})
 	if err != nil {
 		return
@@ -208,7 +209,7 @@ func (g jobGreet) commandRun(client liteproto.Client, _ string) (err error) {
 
 	go func() {
 		response := <-responseCh
-		printMessageThey(response.MessageData)
+		printMessageThey(response.Data)
 		close(stopCh)
 	}()
 
@@ -218,15 +219,15 @@ func (g jobGreet) commandRun(client liteproto.Client, _ string) (err error) {
 }
 
 // Exec implements liteproto.ExecerWithResponder interface
-func (g jobGreet) Exec(ctx context.Context, job liteproto.Message, client liteproto.ResponderClient) {
-	printMessageThey(job.MessageData)
+func (g jobGreet) Exec(ctx context.Context, job liteproto.TaskRequest, client liteproto.ResponderClient) {
+	printMessageThey(job.Data)
 
 	time.Sleep(time.Second)
 
 	// Demonstrates sending a response back to the caller.
 
 	message := fmt.Sprintf("Hello %s. I'm %s. Nice to meet you.", g.they, g.i)
-	err := client.Respond(ctx, newChatMessageJSON(message))
+	err := client.Respond(ctx, liteproto.StatusSuccess, newChatMessageJSON(message))
 	if err != nil {
 		log.Printf("Error. Failed to respond: %s", err.Error())
 		return
@@ -243,10 +244,10 @@ func (g jobSay) commandRun(client liteproto.Client, message string) (err error) 
 	// Demonstrates calling a remote server without handling responses.
 	// If the remote server sends back a response it will be ignored.
 
-	err = client.Call(context.Background(), liteproto.Message{
-		MessageID:   id(),
-		MessageType: "say",
-		MessageData: newChatMessageJSON(message),
+	err = client.Call(context.Background(), liteproto.TaskRequest{
+		ID:   id(),
+		Type: "say",
+		Data: newChatMessageJSON(message),
 	})
 	if err != nil {
 		return
@@ -258,8 +259,8 @@ func (g jobSay) commandRun(client liteproto.Client, message string) (err error) 
 }
 
 // Exec implements liteproto.Execer interface
-func (g jobSay) Exec(_ context.Context, job liteproto.Message, _ liteproto.Client) {
-	printMessageThey(job.MessageData)
+func (g jobSay) Exec(_ context.Context, job liteproto.TaskRequest, _ liteproto.Client) {
+	printMessageThey(job.Data)
 }
 
 // jobCount handles count command
@@ -277,10 +278,10 @@ func (g jobCount) commandRun(client liteproto.Client, message string) (err error
 
 	// This code demonstrates call deadlines. Channel responseCh will be closed by the library at the deadline.
 
-	responseCh, stopCh, err := client.CallWithDeadline(context.Background(), liteproto.Message{
-		MessageID:   id(),
-		MessageType: "count",
-		MessageData: newChatMessageWithNumberJSON(message, number),
+	responseCh, stopCh, err := client.CallWithDeadline(context.Background(), liteproto.TaskRequest{
+		ID:   id(),
+		Type: "count",
+		Data: newChatMessageWithNumberJSON(message, number),
 	}, deadline)
 	if err != nil {
 		return
@@ -297,7 +298,7 @@ func (g jobCount) commandRun(client liteproto.Client, message string) (err error
 			if !ok {
 				return
 			}
-			printMessageThey(response.MessageData)
+			printMessageThey(response.Data)
 		}
 	}()
 
@@ -307,8 +308,8 @@ func (g jobCount) commandRun(client liteproto.Client, message string) (err error
 }
 
 // Exec implements liteproto.ExecerWithResponder interface
-func (g jobCount) Exec(ctx context.Context, job liteproto.Message, client liteproto.ResponderClient) {
-	c := printMessageThey(job.MessageData)
+func (g jobCount) Exec(ctx context.Context, job liteproto.TaskRequest, client liteproto.ResponderClient) {
+	c := printMessageThey(job.Data)
 
 	for i := 1; i <= c.Number; i++ {
 		time.Sleep(time.Second)
@@ -322,7 +323,7 @@ func (g jobCount) Exec(ctx context.Context, job liteproto.Message, client litepr
 		}
 
 		message := fmt.Sprintf("%d...", i)
-		err := client.Respond(ctx, newChatMessageJSON(message))
+		err := client.Respond(ctx, liteproto.StatusSuccess, newChatMessageJSON(message))
 		if err != nil {
 			log.Printf("Error. Failed to respond: %s\n", err.Error())
 			continue
@@ -332,7 +333,7 @@ func (g jobCount) Exec(ctx context.Context, job liteproto.Message, client litepr
 	}
 
 	message := "That's it."
-	err := client.Respond(ctx, newChatMessageJSON(message))
+	err := client.Respond(ctx, liteproto.StatusSuccess, newChatMessageJSON(message))
 	if err != nil {
 		fmt.Printf("Error. Failed to respond: %s\n", err.Error())
 		return

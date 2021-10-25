@@ -9,6 +9,8 @@ import (
 	"github.com/drone/liteproto/liteproto"
 )
 
+// ServerFeeder is a helper object that handles requests for task execution
+// and relays them to one of the registered task executors.
 type ServerFeeder struct {
 	execerMap        map[string]interface{}
 	execerDefault    liteproto.ExecerWithResponder
@@ -16,6 +18,7 @@ type ServerFeeder struct {
 	logger           *log.Logger
 }
 
+// NewServerFeeder creates new ServerFeeder objects.
 func NewServerFeeder(factory ResponderFactory, logger *log.Logger) (sf *ServerFeeder) {
 	return &ServerFeeder{
 		execerMap:        map[string]interface{}{},
@@ -24,20 +27,29 @@ func NewServerFeeder(factory ResponderFactory, logger *log.Logger) (sf *ServerFe
 	}
 }
 
-func (sf *ServerFeeder) Register(jobType string, execer liteproto.Execer) {
-	sf.execerMap[jobType] = execer
+// Register assigns an liteproto.Execer to run tasks of a given type.
+// This method is a part of liteproto.Server interface implementation.
+func (sf *ServerFeeder) Register(typ string, execer liteproto.Execer) {
+	sf.execerMap[typ] = execer
 }
 
-func (sf *ServerFeeder) RegisterWithResponder(jobType string, execer liteproto.ExecerWithResponder) {
-	sf.execerMap[jobType] = execer
+// RegisterWithResponder assigns an liteproto.ExecerWithResponder to run tasks of a given type.
+// This method is a part of liteproto.Server interface implementation.
+func (sf *ServerFeeder) RegisterWithResponder(typ string, execer liteproto.ExecerWithResponder) {
+	sf.execerMap[typ] = execer
 }
 
+// RegisterCatchAll assigns an liteproto.ExecerWithResponder to run all tasks
+// that are not already assigned to some other Execer.
+// This method is a part of liteproto.Server interface implementation.
 func (sf *ServerFeeder) RegisterCatchAll(execer liteproto.ExecerWithResponder) {
 	sf.execerDefault = execer
 }
 
-func (sf *ServerFeeder) Feed(ctx context.Context, jobID, jobType string, data []byte, deadline time.Time) error {
-	execer, ok := sf.execerMap[jobType]
+// Feed accepts requests for task execution. Parameter deadline should be zero time if it's not needed.
+// This method implements Feeder interface.
+func (sf *ServerFeeder) Feed(ctx context.Context, r liteproto.TaskRequest, deadline time.Time) error {
+	execer, ok := sf.execerMap[r.Type]
 	if !ok {
 		if sf.execerDefault == nil {
 			return liteproto.ErrUnknownType
@@ -63,28 +75,22 @@ func (sf *ServerFeeder) Feed(ctx context.Context, jobID, jobType string, data []
 		cancelFunc = func() {}
 	}
 
-	job := liteproto.Message{
-		MessageID:   jobID,
-		MessageType: jobType,
-		MessageData: data,
-	}
-
 	switch execer := execer.(type) {
 	case liteproto.Execer:
-		go func(ctx context.Context, job *liteproto.Message) {
+		go func(ctx context.Context, r *liteproto.TaskRequest) {
 			defer sf.panicRecovery(cancelFunc)
 
 			client := sf.responderFactory.Client()
-			execer.Exec(ctx, *job, client)
-		}(ctxJob, &job)
+			execer.Exec(ctx, *r, client)
+		}(ctxJob, &r)
 
 	case liteproto.ExecerWithResponder:
-		go func(ctx context.Context, job *liteproto.Message) {
+		go func(ctx context.Context, r *liteproto.TaskRequest) {
 			defer sf.panicRecovery(cancelFunc)
 
-			responder := sf.responderFactory.MakeResponder(jobID, jobType)
-			execer.Exec(ctx, *job, responder)
-		}(ctxJob, &job)
+			responder := sf.responderFactory.MakeResponder(r.ID, r.Type)
+			execer.Exec(ctx, *r, responder)
+		}(ctxJob, &r)
 	default:
 		cancelFunc()
 	}
