@@ -67,14 +67,11 @@ func (c *caller) do(ctx context.Context, id, t, status string, data []byte, dead
 	}
 
 	err = wrapWriter(wc, func(writer io.Writer) error {
-		return c.marshaller.messageMarshal(buf, m)
+		return c.marshaller.messageMarshal(writer, m)
 	})
 	if err != nil {
 		return
 	}
-
-	fmt.Printf("CALLING: %s\n", c.url)
-	fmt.Printf("BODY: %s\n", buf)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, buf)
 	if err != nil {
@@ -97,9 +94,33 @@ func (c *caller) do(ctx context.Context, id, t, status string, data []byte, dead
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated &&
 		resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusNoContent {
-		err = liteproto.ErrCallFailed
+
+		var body []byte
+
+		if resp.StatusCode >= http.StatusBadRequest {
+			body, _ = io.ReadAll(resp.Body)
+		}
+
+		err = CallFailedError{
+			StatusCode: resp.StatusCode,
+			Body:       body,
+		}
 		return
 	}
 
 	return
+}
+
+// CallFailedError is returned by Caller when a remote server returns an error.
+type CallFailedError struct {
+	StatusCode int
+	Body       []byte
+}
+
+func (e CallFailedError) Error() string {
+	if e.Body == nil {
+		return fmt.Sprintf("call failed, status=%d", e.StatusCode)
+	}
+
+	return fmt.Sprintf("call failed, status=%d body=%s", e.StatusCode, e.Body)
 }

@@ -10,14 +10,21 @@ import (
 	"github.com/drone/liteproto/liteproto/internal"
 )
 
-type CallProto struct {
+// ServerClient can function as a server and as a client. Requests and responses to a remote server
+// are sent with HTTP protocol. Message payload 'Data' must be JSON encoded (json.RawMessage).
+type ServerClient struct {
 	caller internal.Caller
 	pubsub internal.ResponsePubSub
 	runner *internal.Runner
 	sf     *internal.ServerFeeder
 }
 
-func New(url string, compress bool, httpClient *http.Client, logger *log.Logger) *CallProto {
+// New creates a new ServerClient. Parameter 'url' is a full URL to which client calls and server responses
+// will be directed. If bool parameter 'compress' is true, all HTTP request bodies will be gzipped and
+// "Content-Encoding: gzip" header will be added. The library automatically handles gzipped HTTP requests.
+// Parameters 'httpClient' and 'logger' can be nil. Default implementations will be used for those in that case.
+// Logger is used only for logging panics that occur during execution of tasks.
+func New(url string, compress bool, httpClient *http.Client, logger *log.Logger) *ServerClient {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
@@ -26,7 +33,7 @@ func New(url string, compress bool, httpClient *http.Client, logger *log.Logger)
 		logger = log.Default()
 	}
 
-	h := &CallProto{}
+	h := &ServerClient{}
 
 	marshaller := jsoner{}
 
@@ -49,30 +56,30 @@ func New(url string, compress bool, httpClient *http.Client, logger *log.Logger)
 	return h
 }
 
-func (h *CallProto) Register(t string, execer liteproto.Execer) {
+func (h *ServerClient) Register(t string, execer liteproto.Execer) {
 	h.sf.Register(t, execer)
 }
 
-func (h *CallProto) RegisterWithResponder(t string, execer liteproto.ExecerWithResponder) {
+func (h *ServerClient) RegisterWithResponder(t string, execer liteproto.ExecerWithResponder) {
 	h.sf.RegisterWithResponder(t, execer)
 }
 
-func (h *CallProto) RegisterCatchAll(execer liteproto.ExecerWithResponder) {
+func (h *ServerClient) RegisterCatchAll(execer liteproto.ExecerWithResponder) {
 	h.sf.RegisterCatchAll(execer)
 }
 
-func (h *CallProto) CallWithResponse(ctx context.Context, r liteproto.TaskRequest) (response <-chan liteproto.TaskResponse, stop chan<- struct{}, err error) {
+func (h *ServerClient) CallWithResponse(ctx context.Context, r liteproto.TaskRequest) (response <-chan liteproto.TaskResponse, stop chan<- struct{}, err error) {
 	return h.runner.Run(ctx, r, time.Time{})
 }
 
-func (h *CallProto) CallWithDeadline(ctx context.Context, r liteproto.TaskRequest, deadline time.Time) (response <-chan liteproto.TaskResponse, stop chan<- struct{}, err error) {
+func (h *ServerClient) CallWithDeadline(ctx context.Context, r liteproto.TaskRequest, deadline time.Time) (response <-chan liteproto.TaskResponse, stop chan<- struct{}, err error) {
 	return h.runner.Run(ctx, r, deadline)
 }
 
-func (h *CallProto) Call(ctx context.Context, r liteproto.TaskRequest) (err error) {
+func (h *ServerClient) Call(ctx context.Context, r liteproto.TaskRequest) (err error) {
 	return h.caller.Call(ctx, r, time.Time{})
 }
 
-func (h *CallProto) Handler() http.Handler {
+func (h *ServerClient) Handler() http.Handler {
 	return handler(h.sf, h.pubsub)
 }
